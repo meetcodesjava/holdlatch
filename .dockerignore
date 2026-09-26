@@ -1,0 +1,9 @@
+target/
+.git/
+.github/
+.idea/
+*.iml
+.env
+src/main/resources/application-local.yml
+loadtest/
+*.md

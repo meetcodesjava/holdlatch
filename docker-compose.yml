@@ -1,0 +1,62 @@
+# HoldLatch + AeroKV + PostgreSQL.
+#   cp .env.example .env     (then edit the secrets)
+#   docker compose up --build
+# API on http://localhost:8081 ; health at /actuator/health.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-holdlatch}
+      POSTGRES_USER: ${DB_USER:-holdlatch}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-holdlatch} -d ${DB_NAME:-holdlatch}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The hold engine: built straight from its own repository. Not published to the host -
+  # only HoldLatch (on the compose network) can talk to it.
+  aerokv:
+    build: https://github.com/meetcodesjava/aerokv-holdlatch.git#main
+    restart: unless-stopped
+    environment:
+      AEROKV_PASSWORD: ${AEROKV_PASSWORD:-}
+      AEROKV_CAPACITY: ${AEROKV_CAPACITY:-100000}
+    volumes:
+      - aerokv-data:/data   # the write-ahead log lives here, so active holds survive a restart
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo PING >&3 && read -t 2 -u 3 reply && [ \"$$reply\" = PONG ]"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  holdlatch:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      aerokv:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-holdlatch}
+      DB_USER: ${DB_USER:-holdlatch}
+      DB_PASSWORD: ${DB_PASSWORD}
+      AEROKV_HOST: aerokv
+      AEROKV_PORT: "8080"
+      AEROKV_PASSWORD: ${AEROKV_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (32+ chars)}
+      HOLD_TOKEN_SECRET: ${HOLD_TOKEN_SECRET:?set HOLD_TOKEN_SECRET in .env (32+ chars)}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+
+volumes:
+  pgdata:
+  aerokv-data:
