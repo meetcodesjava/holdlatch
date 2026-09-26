@@ -56,7 +56,7 @@ class PersistenceLayerTest extends AbstractPostgresTest {
     }
 
     private BookingOrderRecord newOrder(UserRecord user, EventRecord event, String holdId) {
-        PaymentTransactionRecord payment = payments.saveAndFlush(new PaymentTransactionRecord(user.getId(), event.getId(), holdId, 2500, "USD", NOW));
+        PaymentTransactionRecord payment = payments.saveAndFlush(new PaymentTransactionRecord(user.getId(), event.getId(), holdId, "{}", 2500, "USD", NOW));
         return orders.saveAndFlush(new BookingOrderRecord(user.getId(), event.getId(), payment.getId(), 2500, "USD", NOW));
     }
 
@@ -173,14 +173,14 @@ class PersistenceLayerTest extends AbstractPostgresTest {
     void paymentIntentIdsAreUniqueAndLookupWorks() {
         UserRecord user = newUser("fan@example.com");
         EventRecord event = newEvent(newUser("org@example.com"));
-        PaymentTransactionRecord a = new PaymentTransactionRecord(user.getId(), event.getId(), "hold-1", 100, "USD", NOW);
+        PaymentTransactionRecord a = new PaymentTransactionRecord(user.getId(), event.getId(), "hold-1", "{}", 100, "USD", NOW);
         a.attachPaymentIntent("pi_123");
         payments.saveAndFlush(a);
 
         assertEquals(PaymentTransactionState.PENDING, payments.findByStripePaymentIntentId("pi_123").orElseThrow().getState());
         assertEquals(a.getId(), payments.findByStripePaymentIntentIdForUpdate("pi_123").orElseThrow().getId());
 
-        PaymentTransactionRecord b = new PaymentTransactionRecord(user.getId(), event.getId(), "hold-2", 100, "USD", NOW);
+        PaymentTransactionRecord b = new PaymentTransactionRecord(user.getId(), event.getId(), "hold-2", "{}", 100, "USD", NOW);
         b.attachPaymentIntent("pi_123");
         assertThrows(DataIntegrityViolationException.class, () -> payments.saveAndFlush(b));
     }

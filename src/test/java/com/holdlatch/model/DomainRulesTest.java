@@ -50,7 +50,7 @@ class DomainRulesTest {
 
     @Test
     void paymentRecordRejectsIllegalTransitionsAndKeepsFailureReasonBounded() {
-        PaymentTransactionRecord payment = new PaymentTransactionRecord(UUID.randomUUID(), UUID.randomUUID(), "hold-1", 5000, "usd", NOW);
+        PaymentTransactionRecord payment = new PaymentTransactionRecord(UUID.randomUUID(), UUID.randomUUID(), "hold-1", "{}", 5000, "usd", NOW);
         assertEquals("USD", payment.getCurrency());
         assertEquals(PaymentTransactionState.PENDING, payment.getState());
 

@@ -29,6 +29,9 @@ public class PaymentTransactionRecord {
     @Column(name = "hold_id", nullable = false, updatable = false)
     private String holdId;
 
+    @Column(name = "hold_snapshot", nullable = false, updatable = false)
+    private String holdSnapshot;
+
     @Column(name = "stripe_payment_intent_id")
     private String stripePaymentIntentId;
 
@@ -56,7 +59,7 @@ public class PaymentTransactionRecord {
 
     protected PaymentTransactionRecord() {}
 
-    public PaymentTransactionRecord(UUID userId, UUID eventId, String holdId, long amountCents, String currency, Instant now) {
+    public PaymentTransactionRecord(UUID userId, UUID eventId, String holdId, String holdSnapshot, long amountCents, String currency, Instant now) {
         if (amountCents < 0) {
             throw new IllegalArgumentException("amount must not be negative");
         }
@@ -64,6 +67,7 @@ public class PaymentTransactionRecord {
         this.userId = userId;
         this.eventId = eventId;
         this.holdId = holdId;
+        this.holdSnapshot = holdSnapshot;
         this.amountCents = amountCents;
         this.currency = currency.toUpperCase(Locale.ROOT);
         this.state = PaymentTransactionState.PENDING;
@@ -92,6 +96,7 @@ public class PaymentTransactionRecord {
     public UUID getUserId() { return userId; }
     public UUID getEventId() { return eventId; }
     public String getHoldId() { return holdId; }
+    public String getHoldSnapshot() { return holdSnapshot; }
     public String getStripePaymentIntentId() { return stripePaymentIntentId; }
     public PaymentTransactionState getState() { return state; }
     public long getAmountCents() { return amountCents; }
