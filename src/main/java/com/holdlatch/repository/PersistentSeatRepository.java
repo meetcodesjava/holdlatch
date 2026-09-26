@@ -12,6 +12,16 @@ import org.springframework.data.repository.query.Param;
 
 public interface PersistentSeatRepository extends JpaRepository<SeatRecord, UUID> {
 
+    /** Just the two ids per seat: enough to know which section a seat is in, without loading whole seat rows. */
+    interface SeatSectionRow {
+        UUID getId();
+
+        UUID getSectionId();
+    }
+
+    @Query("select s.id as id, s.sectionId as sectionId from SeatRecord s where s.eventId = :eventId")
+    List<SeatSectionRow> findSeatSections(@Param("eventId") UUID eventId);
+
     List<SeatRecord> findBySectionIdOrderByRowLabelAscSeatNumberAsc(UUID sectionId);
 
     List<SeatRecord> findByEventIdAndIdIn(UUID eventId, Collection<UUID> ids);

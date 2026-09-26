@@ -8,7 +8,6 @@ import com.holdlatch.exception.InvalidSelectionException;
 import com.holdlatch.exception.NotFoundException;
 import com.holdlatch.model.persistence.EventRecord;
 import com.holdlatch.model.persistence.SectionRecord;
-import com.holdlatch.repository.PersistentEventRepository;
 import java.time.Clock;
 import java.util.HashSet;
 import java.util.List;
@@ -16,12 +15,11 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Turns a hold request into a validated, priced plan using only database
- * reads. Kept separate from the AeroKV calls on purpose: the database
- * connection is released before any network call to AeroKV is made.
+ * Turns a hold request into a validated, priced plan. It reads only from the
+ * short-lived catalog cache, so a request that is going to lose - a taken seat,
+ * a bad selection - is refused without a single database query.
  */
 @Service
 public class SeatAllocationService {
@@ -29,22 +27,21 @@ public class SeatAllocationService {
     record Plan(EventRecord event, AssignedSeatStrategy.Selection seats, List<GeneralAdmissionStrategy.Selection> standing,
                 long totalCents, String currency) {}
 
-    private final PersistentEventRepository events;
+    private final CatalogCache catalog;
     private final AssignedSeatStrategy assigned;
     private final GeneralAdmissionStrategy standing;
     private final HoldProperties props;
     private final Clock clock;
 
-    SeatAllocationService(PersistentEventRepository events, AssignedSeatStrategy assigned, GeneralAdmissionStrategy standing,
+    SeatAllocationService(CatalogCache catalog, AssignedSeatStrategy assigned, GeneralAdmissionStrategy standing,
                           HoldProperties props, Clock clock) {
-        this.events = events;
+        this.catalog = catalog;
         this.assigned = assigned;
         this.standing = standing;
         this.props = props;
         this.clock = clock;
     }
 
-    @Transactional(readOnly = true)
     Plan plan(UUID eventId, HoldRequest request) {
         List<UUID> seatIds = request.seatIdsOrEmpty();
         List<StandingRequest> standingRequests = request.standingOrEmpty();
@@ -57,8 +54,9 @@ public class SeatAllocationService {
             throw new InvalidSelectionException("TOO_MANY_TICKETS", "At most " + props.maxTicketsPerHold() + " tickets can be held at once.");
         }
 
-        EventRecord event = events.findById(eventId)
+        EventRecord event = catalog.event(eventId)
                 .orElseThrow(() -> new NotFoundException("EVENT_NOT_FOUND", "Event not found."));
+        List<SectionRecord> sections = catalog.sections(eventId);
         if (!event.isOnSale()) {
             throw new ApiException(HttpStatus.CONFLICT, "EVENT_NOT_ON_SALE", "This event is not on sale.");
         }
@@ -66,9 +64,9 @@ public class SeatAllocationService {
             throw new ApiException(HttpStatus.CONFLICT, "EVENT_ALREADY_STARTED", "This event has already started.");
         }
 
-        AssignedSeatStrategy.Selection seatSelection = seatIds.isEmpty() ? null : assigned.plan(event, seatIds);
+        AssignedSeatStrategy.Selection seatSelection = seatIds.isEmpty() ? null : assigned.plan(event, sections, seatIds);
         List<GeneralAdmissionStrategy.Selection> standingSelections =
-                standingRequests.isEmpty() ? List.of() : standing.plan(event, standingRequests);
+                standingRequests.isEmpty() ? List.of() : standing.plan(event, sections, standingRequests);
 
         Set<String> currencies = new HashSet<>();
         if (seatSelection != null) {

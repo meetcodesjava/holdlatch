@@ -134,11 +134,13 @@ class HoldFlowIntegrationTest extends AbstractHoldFlowTest {
 
     @Test
     void standingRoomIsPricedPerTicketAndStopsAtCapacity() throws Exception {
-        api.hold(alice, event, List.of(), Map.of(lawn, 3)).andExpect(status().isCreated())
+        JsonNode first = api.read(api.hold(alice, event, List.of(), Map.of(lawn, 3)).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.totalCents", is(6_000)))
                 .andExpect(jsonPath("$.seatIds", hasSize(0)))
-                .andExpect(jsonPath("$.standing[0].quantity", is(3)));
+                .andExpect(jsonPath("$.standing[0].quantity", is(3))));
         assertEquals(3, AEROKV.countLiveKeysWithPrefix("g:" + lawn));
+        api.post(alice, "/api/holds/release", Map.of("holdToken", first.get("holdToken").asText())).andExpect(status().isNoContent());
+        assertEquals(0, AEROKV.countLiveKeysWithPrefix("g:" + lawn));
 
         // 18 of 20 tickets get sold for real: only 2 remain, so asking for 3 is sold out and 2 works.
         new TransactionTemplate(txManager).executeWithoutResult(s -> assertEquals(1, sectionRepository.reserveStandingRoom(lawn, 18)));

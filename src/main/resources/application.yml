@@ -46,7 +46,7 @@ holdlatch:
     max-tickets-per-hold: ${HOLD_MAX_TICKETS:8}
     reject-orphan-seats: ${HOLD_REJECT_ORPHAN_SEATS:true}
     standing-room-attempts: ${HOLD_STANDING_ATTEMPTS:6}
-    seat-map-cache-ttl: ${SEAT_MAP_CACHE_TTL:PT1S}
+    catalog-cache-ttl: ${CATALOG_CACHE_TTL:PT1S}
     payment-grace: ${HOLD_PAYMENT_GRACE:PT2M}
   stripe:
     secret-key: ${STRIPE_SECRET_KEY:}
@@ -64,6 +64,10 @@ aerokv:
     max-total: ${AEROKV_POOL_MAX_TOTAL:64}
     min-idle: ${AEROKV_POOL_MIN_IDLE:4}
     borrow-timeout-ms: ${AEROKV_POOL_BORROW_TIMEOUT_MS:2000}
+
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
 
 management:
   endpoints:

@@ -42,15 +42,15 @@ public class EventCatalogService {
     private final PersistentEventRepository events;
     private final PersistentSectionRepository sections;
     private final PersistentSeatRepository seats;
-    private final SeatAvailabilityCache seatMapCache;
+    private final CatalogCache catalogCache;
     private final Clock clock;
 
     EventCatalogService(PersistentEventRepository events, PersistentSectionRepository sections, PersistentSeatRepository seats,
-                        SeatAvailabilityCache seatMapCache, Clock clock) {
+                        CatalogCache catalogCache, Clock clock) {
         this.events = events;
         this.sections = sections;
         this.seats = seats;
-        this.seatMapCache = seatMapCache;
+        this.catalogCache = catalogCache;
         this.clock = clock;
     }
 
@@ -90,7 +90,9 @@ public class EventCatalogService {
             throw new ApiException(HttpStatus.CONFLICT, "EVENT_NOT_DRAFT", "Only a draft event can be published.");
         }
         event.putOnSale();
-        return detail(events.save(event));
+        EventDetail published = detail(events.save(event));
+        catalogCache.invalidateEvent(eventId);
+        return published;
     }
 
     @Transactional(readOnly = true)
@@ -106,12 +108,12 @@ public class EventCatalogService {
 
     public List<SeatView> seatMap(UUID viewerId, UUID eventId, UUID sectionId) {
         EventRecord event = visibleEvent(viewerId, eventId);
-        SectionRecord section = sections.findByEventIdAndIdIn(event.getId(), List.of(sectionId)).stream().findFirst()
+        SectionRecord section = catalogCache.sections(event.getId()).stream().filter(x -> x.getId().equals(sectionId)).findFirst()
                 .orElseThrow(() -> new NotFoundException("SECTION_NOT_FOUND", "Section not found."));
         if (section.getKind() != SectionKind.ASSIGNED) {
             throw new InvalidSelectionException("NOT_A_SEATED_SECTION", "Standing sections have no seat map.");
         }
-        return seatMapCache.get(sectionId);
+        return catalogCache.seats(sectionId).seats();
     }
 
     private void createSeatedSection(EventRecord event, SectionSpec spec) {

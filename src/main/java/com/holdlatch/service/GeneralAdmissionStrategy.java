@@ -6,7 +6,6 @@ import com.holdlatch.exception.SeatConflictException;
 import com.holdlatch.model.domain.SectionKind;
 import com.holdlatch.model.persistence.EventRecord;
 import com.holdlatch.model.persistence.SectionRecord;
-import com.holdlatch.repository.PersistentSectionRepository;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -33,19 +32,12 @@ class GeneralAdmissionStrategy {
         }
     }
 
-    private final PersistentSectionRepository sectionRepository;
-
-    GeneralAdmissionStrategy(PersistentSectionRepository sectionRepository) {
-        this.sectionRepository = sectionRepository;
-    }
-
-    List<Selection> plan(EventRecord event, List<StandingRequest> requests) {
+    List<Selection> plan(EventRecord event, List<SectionRecord> eventSections, List<StandingRequest> requests) {
         Set<UUID> ids = requests.stream().map(StandingRequest::sectionId).collect(Collectors.toSet());
         if (ids.size() != requests.size()) {
             throw new InvalidSelectionException("DUPLICATE_SECTION", "Each standing section may appear only once.");
         }
-        Map<UUID, SectionRecord> sections = sectionRepository.findByEventIdAndIdIn(event.getId(), ids).stream()
-                .collect(Collectors.toMap(SectionRecord::getId, s -> s));
+        Map<UUID, SectionRecord> sections = eventSections.stream().collect(Collectors.toMap(SectionRecord::getId, s -> s));
 
         List<Selection> selections = new ArrayList<>();
         for (StandingRequest request : requests) {

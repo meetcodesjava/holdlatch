@@ -12,7 +12,7 @@ public record HoldProperties(
         @DefaultValue("8") int maxTicketsPerHold,
         @DefaultValue("true") boolean rejectOrphanSeats,
         @DefaultValue("6") int standingRoomAttempts,
-        @DefaultValue("PT1S") Duration seatMapCacheTtl,
+        @DefaultValue("PT1S") Duration catalogCacheTtl,
         @DefaultValue("PT2M") Duration paymentGrace) {
 
     public HoldProperties {

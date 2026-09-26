@@ -65,9 +65,8 @@ public class ReservationCoordinatorService {
 
         try {
             if (plan.seats() != null) {
-                List<SeatRecord> chosen = plan.seats().seats();
-                chosen.forEach(s -> seatIds.add(s.getId()));
-                List<String> keys = chosen.stream().map(s -> HoldKeys.seat(eventId, s.getId())).toList();
+                seatIds.addAll(plan.seats().seatIds());
+                List<String> keys = seatIds.stream().map(id -> HoldKeys.seat(eventId, id)).toList();
                 attempted.addAll(keys);
                 HoldOutcome outcome = aeroKv.multiHold(keys, holdId, props.ttl());
                 if (outcome != HoldOutcome.ACQUIRED) {

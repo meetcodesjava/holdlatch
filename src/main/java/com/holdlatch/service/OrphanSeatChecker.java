@@ -1,7 +1,5 @@
 package com.holdlatch.service;
 
-import com.holdlatch.model.domain.SeatAllocationStatus;
-import com.holdlatch.model.persistence.SeatRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -17,20 +15,23 @@ import java.util.UUID;
  */
 final class OrphanSeatChecker {
 
+    /** One seat of a row: its number and whether it is already sold. */
+    record Cell(UUID id, int number, boolean taken) {}
+
     private OrphanSeatChecker() {}
 
-    /** @param rowSeats every seat in one row (any order); BOOKED seats count as taken */
-    static List<UUID> newOrphans(List<SeatRecord> rowSeats, Set<UUID> selected) {
-        List<SeatRecord> seats = new ArrayList<>(rowSeats);
-        seats.sort(Comparator.comparingInt(SeatRecord::getSeatNumber));
+    /** @param row every seat in one row (any order); sold seats count as taken */
+    static List<UUID> newOrphans(List<Cell> row, Set<UUID> selected) {
+        List<Cell> cells = new ArrayList<>(row);
+        cells.sort(Comparator.comparingInt(Cell::number));
 
-        Set<UUID> loneBefore = loneFreeSeats(seats, Set.of());
-        Set<UUID> loneAfter = loneFreeSeats(seats, selected);
+        Set<UUID> loneBefore = loneFreeSeats(cells, Set.of());
+        Set<UUID> loneAfter = loneFreeSeats(cells, selected);
         loneAfter.removeAll(loneBefore);
         return new ArrayList<>(loneAfter);
     }
 
-    private static Set<UUID> loneFreeSeats(List<SeatRecord> sorted, Set<UUID> extraTaken) {
+    private static Set<UUID> loneFreeSeats(List<Cell> sorted, Set<UUID> extraTaken) {
         Set<UUID> lone = new HashSet<>();
         for (int i = 0; i < sorted.size(); i++) {
             if (!isFree(sorted.get(i), extraTaken)) {
@@ -39,18 +40,18 @@ final class OrphanSeatChecker {
             boolean freeLeft = i > 0 && adjacent(sorted.get(i - 1), sorted.get(i)) && isFree(sorted.get(i - 1), extraTaken);
             boolean freeRight = i < sorted.size() - 1 && adjacent(sorted.get(i), sorted.get(i + 1)) && isFree(sorted.get(i + 1), extraTaken);
             if (!freeLeft && !freeRight) {
-                lone.add(sorted.get(i).getId());
+                lone.add(sorted.get(i).id());
             }
         }
         return lone;
     }
 
-    private static boolean isFree(SeatRecord seat, Set<UUID> extraTaken) {
-        return seat.getStatus() == SeatAllocationStatus.AVAILABLE && !extraTaken.contains(seat.getId());
+    private static boolean isFree(Cell seat, Set<UUID> extraTaken) {
+        return !seat.taken() && !extraTaken.contains(seat.id());
     }
 
     // A gap in the numbering (an aisle) splits a row into separate blocks.
-    private static boolean adjacent(SeatRecord left, SeatRecord right) {
-        return right.getSeatNumber() == left.getSeatNumber() + 1;
+    private static boolean adjacent(Cell left, Cell right) {
+        return right.number() == left.number() + 1;
     }
 }
