@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # The integration tests start their own throwaway PostgreSQL, so no database service is needed here.
+      - name: Build and run all tests
+        run: mvn -B verify
+
+      - name: Keep test reports when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+
+  docker:
+    name: Docker image and compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the HoldLatch image
+        run: docker build -t holdlatch:ci .
+
+      - name: Validate the compose file
+        run: docker compose --env-file .env.example config --quiet
+
+  loadtest-script:
+    name: Load-test script compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: python -m py_compile loadtest/flash_sale.py
