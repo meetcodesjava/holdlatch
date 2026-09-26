@@ -1,0 +1,9 @@
+holdlatch:
+  security:
+    jwt-secret: test-only-secret-that-is-at-least-32-bytes-long!!
+    bcrypt-strength: 4
+    rate-limit:
+      api-capacity: 1000
+      api-refill-per-second: 1000
+      auth-capacity: 10
+      auth-refill-per-second: 0.001
