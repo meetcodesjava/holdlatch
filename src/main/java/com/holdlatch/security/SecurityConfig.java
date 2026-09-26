@@ -29,6 +29,8 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
+                        // No login: the caller is Stripe, proven by the request signature checked in the controller.
+                        .requestMatchers(HttpMethod.POST, "/api/webhooks/stripe").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         // Checked here, before any request body is parsed, so a non-organizer always gets 403 and never a validation error.
                         .requestMatchers(HttpMethod.POST, "/api/events", "/api/events/*/publish").hasRole("ORGANIZER")

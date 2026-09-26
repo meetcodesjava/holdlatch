@@ -41,7 +41,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return request.getRequestURI().startsWith("/actuator/health");
+        String uri = request.getRequestURI();
+        // Provider webhooks are authenticated by signature and can legitimately arrive in bursts from a few addresses.
+        return uri.startsWith("/actuator/health") || uri.startsWith("/api/webhooks/");
     }
 
     @Override
