@@ -12,7 +12,8 @@ public record HoldProperties(
         @DefaultValue("8") int maxTicketsPerHold,
         @DefaultValue("true") boolean rejectOrphanSeats,
         @DefaultValue("6") int standingRoomAttempts,
-        @DefaultValue("PT1S") Duration seatMapCacheTtl) {
+        @DefaultValue("PT1S") Duration seatMapCacheTtl,
+        @DefaultValue("PT2M") Duration paymentGrace) {
 
     public HoldProperties {
         if (tokenSecret == null || tokenSecret.getBytes(StandardCharsets.UTF_8).length < 32) {
@@ -20,6 +21,9 @@ public record HoldProperties(
         }
         if (ttl.isNegative() || ttl.isZero()) {
             throw new IllegalArgumentException("holdlatch.hold.ttl must be positive");
+        }
+        if (paymentGrace.isNegative()) {
+            throw new IllegalArgumentException("holdlatch.hold.payment-grace must not be negative");
         }
         if (maxTicketsPerHold < 1 || standingRoomAttempts < 1) {
             throw new IllegalArgumentException("max-tickets-per-hold and standing-room-attempts must be at least 1");

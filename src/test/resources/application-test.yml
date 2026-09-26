@@ -1,4 +1,6 @@
 holdlatch:
+  scheduling:
+    enabled: false
   hold:
     token-secret: test-only-hold-token-secret-32-bytes-min!!
   security:

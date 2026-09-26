@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 class HoldTokenServiceTest {
 
     private static HoldTokenService service(String secret) {
-        HoldProperties props = new HoldProperties(secret, Duration.ofMinutes(5), 8, true, 6, Duration.ofSeconds(1));
+        HoldProperties props = new HoldProperties(secret, Duration.ofMinutes(5), 8, true, 6, Duration.ofSeconds(1), Duration.ofMinutes(2));
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         return new HoldTokenService(props, mapper);
     }

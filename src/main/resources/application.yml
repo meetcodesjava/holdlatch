@@ -47,6 +47,12 @@ holdlatch:
     reject-orphan-seats: ${HOLD_REJECT_ORPHAN_SEATS:true}
     standing-room-attempts: ${HOLD_STANDING_ATTEMPTS:6}
     seat-map-cache-ttl: ${SEAT_MAP_CACHE_TTL:PT1S}
+    payment-grace: ${HOLD_PAYMENT_GRACE:PT2M}
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY:}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+    webhook-tolerance-seconds: ${STRIPE_WEBHOOK_TOLERANCE_SECONDS:300}
+    timeout-ms: ${STRIPE_TIMEOUT_MS:10000}
 
 aerokv:
   host: ${AEROKV_HOST:localhost}

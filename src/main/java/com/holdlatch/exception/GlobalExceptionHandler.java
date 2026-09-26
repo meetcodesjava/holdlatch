@@ -1,6 +1,7 @@
 package com.holdlatch.exception;
 
 import com.holdlatch.engine.aerokv.AeroKvUnavailableException;
+import com.holdlatch.payment.PaymentGatewayException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -35,6 +36,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         log.error("AeroKV unavailable: {}", e.getMessage());
         return problem(HttpStatus.SERVICE_UNAVAILABLE, "RESERVATION_ENGINE_UNAVAILABLE",
                 "Seat reservations are temporarily unavailable. Please retry shortly.");
+    }
+
+    @ExceptionHandler(PaymentGatewayException.class)
+    ProblemDetail handlePaymentProvider(PaymentGatewayException e) {
+        log.error("Payment provider error: {}", e.getMessage());
+        return problem(HttpStatus.BAD_GATEWAY, "PAYMENT_PROVIDER_ERROR", "The payment provider could not complete the request. Please retry.");
     }
 
     @ExceptionHandler(AccessDeniedException.class)
