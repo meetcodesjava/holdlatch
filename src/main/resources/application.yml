@@ -40,6 +40,14 @@ holdlatch:
       auth-capacity: ${RATE_AUTH_CAPACITY:10}
       auth-refill-per-second: ${RATE_AUTH_REFILL_PER_SECOND:0.2}
 
+  hold:
+    token-secret: ${HOLD_TOKEN_SECRET:}
+    ttl: ${HOLD_TTL:PT5M}
+    max-tickets-per-hold: ${HOLD_MAX_TICKETS:8}
+    reject-orphan-seats: ${HOLD_REJECT_ORPHAN_SEATS:true}
+    standing-room-attempts: ${HOLD_STANDING_ATTEMPTS:6}
+    seat-map-cache-ttl: ${SEAT_MAP_CACHE_TTL:PT1S}
+
 aerokv:
   host: ${AEROKV_HOST:localhost}
   port: ${AEROKV_PORT:8080}

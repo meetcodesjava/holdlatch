@@ -25,7 +25,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ProblemDetail handleApi(ApiException e) {
-        return problem(e.getStatus(), e.getCode(), e.getMessage());
+        ProblemDetail problem = problem(e.getStatus(), e.getCode(), e.getMessage());
+        e.getProperties().forEach(problem::setProperty);
+        return problem;
     }
 
     @ExceptionHandler(AeroKvUnavailableException.class)

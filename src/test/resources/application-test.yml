@@ -1,4 +1,6 @@
 holdlatch:
+  hold:
+    token-secret: test-only-hold-token-secret-32-bytes-min!!
   security:
     jwt-secret: test-only-secret-that-is-at-least-32-bytes-long!!
     bcrypt-strength: 4

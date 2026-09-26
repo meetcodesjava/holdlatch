@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties({AeroKvProperties.class, SecurityProperties.class})
+@EnableConfigurationProperties({AeroKvProperties.class, SecurityProperties.class, HoldProperties.class})
 public class AppConfig {
 
     @Bean
