@@ -28,7 +28,11 @@ public final class FakeAeroKvServer implements AutoCloseable {
     private volatile boolean running = true;
 
     public FakeAeroKvServer(String password) throws IOException {
-        this.serverSocket = new ServerSocket(0);
+        this(password, 0);
+    }
+
+    public FakeAeroKvServer(String password, int port) throws IOException {
+        this.serverSocket = new ServerSocket(port);
         this.password = password;
         Thread acceptor = new Thread(this::acceptLoop, "fake-aerokv-acceptor");
         acceptor.setDaemon(true);

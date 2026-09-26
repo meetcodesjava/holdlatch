@@ -135,4 +135,31 @@ class AeroKvClientTest {
             }
         }
     }
+
+    @Test
+    void recoversByItselfAfterAeroKvRestarts() throws Exception {
+        FakeAeroKvServer first = new FakeAeroKvServer(null);
+        int port = first.port();
+        AeroKvClient client = new AeroKvClient(props(port, null));
+        try {
+            assertEquals(HoldOutcome.ACQUIRED, client.hold("evt:A1", "user1", TTL));
+
+            first.close();
+            try (FakeAeroKvServer second = new FakeAeroKvServer(null, port)) {
+                // The pooled connection points at the dead server: at most one call may fail...
+                boolean failedOnce = false;
+                try {
+                    client.hold("evt:A2", "user1", TTL);
+                } catch (AeroKvUnavailableException expected) {
+                    failedOnce = true;
+                }
+                // ...and after that the client must be talking to the new server without anyone restarting it.
+                assertEquals(HoldOutcome.ACQUIRED, client.hold("evt:A3", "user1", TTL));
+                assertEquals(Optional.of("user1"), client.get("evt:A3"));
+                assertTrue(failedOnce || client.get("evt:A2").isPresent());
+            }
+        } finally {
+            client.close();
+        }
+    }
 }
