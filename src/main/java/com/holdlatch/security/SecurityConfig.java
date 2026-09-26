@@ -30,6 +30,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(a -> a
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Checked here, before any request body is parsed, so a non-organizer always gets 403 and never a validation error.
+                        .requestMatchers(HttpMethod.POST, "/api/events", "/api/events/*/publish").hasRole("ORGANIZER")
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))
                 .oauth2ResourceServer(o -> o
