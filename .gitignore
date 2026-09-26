@@ -1,0 +1,13 @@
+/target/
+*.log
+
+# IDE metadata
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# local secrets
+application-local.yml
+.env
