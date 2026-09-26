@@ -15,6 +15,7 @@ class AeroKvResponseTest {
         assertEquals(Type.CONFLICT, AeroKvResponse.parse("ERR_CONFLICT").type());
         assertEquals(Type.CAPACITY, AeroKvResponse.parse("ERR_CAPACITY").type());
         assertEquals(Type.NOT_FOUND, AeroKvResponse.parse("ERR_NOT_FOUND").type());
+        assertEquals(Type.NOT_HELD, AeroKvResponse.parse("ERR_NOT_HELD").type());
         assertEquals(Type.AUTH_FAILED, AeroKvResponse.parse("ERR_AUTH_FAILED").type());
         assertEquals(Type.AUTH_FAILED, AeroKvResponse.parse("ERR_NOT_AUTHENTICATED").type());
     }

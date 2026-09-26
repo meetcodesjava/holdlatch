@@ -67,12 +67,20 @@ public class AeroKvClient {
         return toOutcome(execute("MHOLD," + String.join("|", sorted) + "," + owner + "," + positiveMillis(ttl)));
     }
 
-    public void release(String key) {
+    /**
+     * Releases the key only if it is still held by {@code owner}. Returns false
+     * if the hold already expired or now belongs to someone else - in which
+     * case it must be left alone, never freed on the new holder's behalf.
+     */
+    public boolean releaseIfOwner(String key, String owner) {
         requireSafe(key, "key");
-        AeroKvResponse reply = execute("RELEASE," + key);
-        if (reply.type() != AeroKvResponse.Type.OK) {
-            throw new AeroKvUnavailableException("Unexpected reply to RELEASE: " + reply);
-        }
+        requireSafe(owner, "owner");
+        AeroKvResponse reply = execute("RELEASEIF," + key + "," + owner);
+        return switch (reply.type()) {
+            case OK -> true;
+            case NOT_HELD -> false;
+            default -> throw new AeroKvUnavailableException("Unexpected reply to RELEASEIF: " + reply);
+        };
     }
 
     public Optional<String> get(String key) {

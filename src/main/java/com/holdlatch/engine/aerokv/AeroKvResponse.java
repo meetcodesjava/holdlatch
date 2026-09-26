@@ -3,7 +3,7 @@ package com.holdlatch.engine.aerokv;
 /** A single AeroKV reply line, parsed into a typed result. */
 record AeroKvResponse(Type type, String payload) {
 
-    enum Type { OK, CONFLICT, CAPACITY, NOT_FOUND, VALUE, PONG, AUTH_FAILED, ERROR }
+    enum Type { OK, CONFLICT, CAPACITY, NOT_FOUND, NOT_HELD, VALUE, PONG, AUTH_FAILED, ERROR }
 
     private static final String VALUE_PREFIX = "VALUE,";
 
@@ -18,6 +18,7 @@ record AeroKvResponse(Type type, String payload) {
             case "ERR_CONFLICT" -> new AeroKvResponse(Type.CONFLICT, null);
             case "ERR_CAPACITY" -> new AeroKvResponse(Type.CAPACITY, null);
             case "ERR_NOT_FOUND" -> new AeroKvResponse(Type.NOT_FOUND, null);
+            case "ERR_NOT_HELD" -> new AeroKvResponse(Type.NOT_HELD, null);
             case "ERR_AUTH_FAILED", "ERR_NOT_AUTHENTICATED" -> new AeroKvResponse(Type.AUTH_FAILED, reply);
             default -> new AeroKvResponse(Type.ERROR, reply);
         };

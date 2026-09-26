@@ -26,7 +26,7 @@ class AeroKvClientTest {
     }
 
     @Test
-    void holdThenConflictThenReleaseThenHoldAgain() throws Exception {
+    void holdThenConflictThenOwnerOnlyReleaseThenHoldAgain() throws Exception {
         try (FakeAeroKvServer server = new FakeAeroKvServer(null)) {
             AeroKvClient client = new AeroKvClient(props(server.port(), null));
             try {
@@ -34,7 +34,9 @@ class AeroKvClientTest {
                 assertEquals(HoldOutcome.CONFLICT, client.hold("evt1:A1", "user2", TTL));
                 assertEquals(Optional.of("user1"), client.get("evt1:A1"));
 
-                client.release("evt1:A1");
+                assertFalse(client.releaseIfOwner("evt1:A1", "user2"));
+                assertEquals(Optional.of("user1"), client.get("evt1:A1"));
+                assertTrue(client.releaseIfOwner("evt1:A1", "user1"));
                 assertEquals(Optional.empty(), client.get("evt1:A1"));
                 assertEquals(HoldOutcome.ACQUIRED, client.hold("evt1:A1", "user2", TTL));
             } finally {
