@@ -38,6 +38,10 @@ public class SectionRecord {
     @Column(nullable = false)
     private String currency;
 
+    // Maintained only by PersistentSectionRepository.reserveStandingRoom, never through the entity.
+    @Column(name = "sold_quantity", nullable = false, insertable = false, updatable = false)
+    private int soldQuantity;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -69,6 +73,8 @@ public class SectionRecord {
     public SectionKind getKind() { return kind; }
     public int getCapacity() { return capacity; }
     public long getPriceCents() { return priceCents; }
+    public int getSoldQuantity() { return soldQuantity; }
+    public int standingRoomLeft() { return capacity - soldQuantity; }
     public String getCurrency() { return currency; }
     public Instant getCreatedAt() { return createdAt; }
 }

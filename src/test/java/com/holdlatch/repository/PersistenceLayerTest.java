@@ -136,6 +136,21 @@ class PersistenceLayerTest extends AbstractPostgresTest {
     }
 
     @Test
+    void standingRoomCounterNeverGoesPastCapacity() {
+        EventRecord event = newEvent(newUser("org@example.com"));
+        SectionRecord lawn = newSection(event, "Lawn", SectionKind.GENERAL_ADMISSION, 10);
+
+        assertEquals(1, sections.reserveStandingRoom(lawn.getId(), 6));
+        assertEquals(0, sections.reserveStandingRoom(lawn.getId(), 6));
+        assertEquals(1, sections.reserveStandingRoom(lawn.getId(), 4));
+        assertEquals(0, sections.reserveStandingRoom(lawn.getId(), 1));
+
+        SectionRecord reloaded = sections.findById(lawn.getId()).orElseThrow();
+        assertEquals(10, reloaded.getSoldQuantity());
+        assertEquals(0, reloaded.standingRoomLeft());
+    }
+
+    @Test
     void oneIdempotencyKeyPerUserIsEnforced() {
         UserRecord user = newUser("fan@example.com");
         UserRecord other = newUser("other@example.com");

@@ -16,6 +16,8 @@ public interface PersistentSeatRepository extends JpaRepository<SeatRecord, UUID
 
     List<SeatRecord> findByEventIdAndIdIn(UUID eventId, Collection<UUID> ids);
 
+    List<SeatRecord> findBySectionIdAndRowLabelIn(UUID sectionId, Collection<String> rowLabels);
+
     long countBySectionIdAndStatus(UUID sectionId, SeatAllocationStatus status);
 
     /**
