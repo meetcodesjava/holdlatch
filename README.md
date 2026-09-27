@@ -138,7 +138,9 @@ backoff, an AeroKV outage (clean `503`), real Stripe-format webhook signatures, 
 | 300 | ~600 req/s | 379 ms | 1,083 ms | 0 | 0 |
 
 The first run of this test *failed* (8 server errors from connection-pool exhaustion), which led to the cache design above.
-Full story and how to run it: [`loadtest/README.md`](loadtest/README.md).
+A later run against the actual Docker Compose stack found a second pool too small (AeroKV's own connection pool, not
+the database's): 34 `503`s at 300 buyers, fixed by raising `AEROKV_POOL_MAX_TOTAL`, after which the same 300-buyer
+run passed with 0 errors and better latency (p99 948 ms). Full story and how to run it: [`loadtest/README.md`](loadtest/README.md).
 
 ## Design decisions and honest limitations
 
