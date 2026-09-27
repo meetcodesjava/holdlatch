@@ -53,6 +53,13 @@ holdlatch:
     webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
     webhook-tolerance-seconds: ${STRIPE_WEBHOOK_TOLERANCE_SECONDS:300}
     timeout-ms: ${STRIPE_TIMEOUT_MS:10000}
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    from: ${MAIL_FROM:}
+    starttls: ${SMTP_STARTTLS:true}
 
 aerokv:
   host: ${AEROKV_HOST:localhost}

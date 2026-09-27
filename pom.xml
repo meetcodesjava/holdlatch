@@ -23,6 +23,7 @@
     <commons-pool2.version>2.12.0</commons-pool2.version>
     <embedded-postgres.version>2.1.0</embedded-postgres.version>
     <stripe.version>33.4.2</stripe.version>
+    <greenmail.version>2.1.0</greenmail.version>
   </properties>
 
   <dependencies>
@@ -49,6 +50,10 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>
@@ -97,6 +102,12 @@
       <groupId>io.zonky.test</groupId>
       <artifactId>embedded-postgres</artifactId>
       <version>${embedded-postgres.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.icegreen</groupId>
+      <artifactId>greenmail-junit5</artifactId>
+      <version>${greenmail.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

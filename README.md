@@ -7,7 +7,7 @@ Seats are claimed in a purpose-built in-memory engine, **[AeroKV](https://github
 (my own key-value store, with striped locks, TTL expiry and a write-ahead log), that sits in front of PostgreSQL. A buyer who
 loses the race is turned away in memory; the database only ever sees purchases that are really going to happen.
 
-> Java 21 · Spring Boot 3.5 · PostgreSQL 17 · Flyway · Stripe · Docker · 108 automated tests
+> Java 21 · Spring Boot 3.5 · PostgreSQL 17 · Flyway · Stripe · Docker · 112 automated tests
 
 ## How a purchase flows
 
@@ -61,8 +61,8 @@ Every problem below is handled in code **and covered by a test**.
 ## Tech stack
 
 Java 21 (virtual threads) · Spring Boot 3.5 (Web, Security, Data JPA, Validation, Actuator) · PostgreSQL 17 + Flyway migrations ·
-Hibernate · Caffeine · Apache Commons Pool2 · Stripe Java SDK · JWT (HS256) · Maven · Docker / Docker Compose · GitHub Actions ·
-JUnit 5, Mockito, MockMvc, embedded real PostgreSQL for tests · Python (asyncio) load test.
+Hibernate · Caffeine · Apache Commons Pool2 · Stripe Java SDK · Spring Mail (SMTP) · JWT (HS256) · Maven · Docker / Docker Compose ·
+GitHub Actions · JUnit 5, Mockito, MockMvc, embedded real PostgreSQL and GreenMail (real SMTP) for tests · Python (asyncio) load test.
 
 ## Quick start (Docker)
 
@@ -116,11 +116,12 @@ All settings are environment variables (see `application.yml`). The important on
 | `CATALOG_CACHE_TTL` | Max staleness of hold-path reads | 1 s |
 | `RATE_API_*`, `RATE_AUTH_*` | Token-bucket limits | see `application.yml` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Enable payments (test mode keys) | off |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` | Enable order-confirmation email | off (logged only) |
 
 ## Testing
 
 ```bash
-mvn verify        # 108 tests, ~1.5 minutes
+mvn verify        # 112 tests, ~1.5 minutes
 ```
 
 The tests use a **real PostgreSQL** (downloaded and started by the test run - nothing to install) and a real AeroKV wire-protocol server,
@@ -150,7 +151,7 @@ run passed with 0 errors and better latency (p99 948 ms). Full story and how to 
 - **The orphan-seat rule** counts booked seats, not seats other people are currently holding (that would cost one AeroKV lookup per seat).
 - **Rate limits are per instance**, not shared across a fleet.
 - **Access tokens only** (1 hour); no refresh tokens or logout list.
-- **"Order confirmed" notifications** are delivered reliably by the outbox but only logged; no email provider is wired in.
+- **"Order confirmed" notifications** are delivered reliably by the outbox and emailed to the buyer over SMTP once `SMTP_HOST`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`MAIL_FROM` are set; without them they are only logged (`DisabledEmailSender`), never lost or retried pointlessly.
 - **Stripe** code paths that call Stripe itself have not been exercised against a live account in this repository (signature verification and payload parsing are tested with genuine Stripe-format signatures; everything else runs against a test double).
 - **Not implemented from the original design:** a virtual waiting-room queue and CAPTCHA/bot challenges.
 
