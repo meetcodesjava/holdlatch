@@ -1,15 +1,26 @@
 # HoldLatch
 
-A seat-reservation backend built for **flash sales**: tens of thousands of buyers fighting over the same seats
-at the same moment, without double-booking and without melting the database.
+[![CI](https://github.com/meetcodesjava/holdlatch/actions/workflows/ci.yml/badge.svg)](https://github.com/meetcodesjava/holdlatch/actions/workflows/ci.yml)
+[![Java 21](https://img.shields.io/badge/java-21-orange)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot 3.5](https://img.shields.io/badge/spring--boot-3.5-brightgreen)](https://spring.io/projects/spring-boot)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Seats are claimed in a purpose-built in-memory engine, **[AeroKV](https://github.com/meetcodesjava/aerokv-holdlatch)**
-(my own key-value store, with striped locks, TTL expiry and a write-ahead log), that sits in front of PostgreSQL. A buyer who
-loses the race is turned away in memory; the database only ever sees purchases that are really going to happen.
+Backend for selling tickets during a flash sale, where hundreds of people can be trying to grab the same seat at
+the same instant. The interesting problem here isn't the CRUD around events and seats, it's making sure exactly
+one buyer wins a contested seat and nobody's card gets charged for a seat they didn't actually get.
 
-> Java 21 · Spring Boot 3.5 · PostgreSQL 17 · Flyway · Stripe · Docker · 112 automated tests
+Seat holds are handled by a small in-memory store I wrote myself, called [AeroKV](https://github.com/meetcodesjava/aerokv-holdlatch),
+instead of reaching for Redis. It sits in front of Postgres: a buyer who loses a race for a seat never touches
+the database at all, so the DB only ever sees requests that are actually going somewhere.
 
-## How a purchase flows
+## Why this exists
+
+I wanted something on my resume that isn't another CRUD app with auth bolted on. Flash sales (Ticketmaster-style
+drops, PS5 restocks, whatever) are a genuinely hard concurrency problem: you have one seat and a thousand people
+who want it, and the wrong answer costs someone real money. Building this forced me to actually deal with race
+conditions, idempotency, and the fact that payments and databases don't fail atomically together.
+
+## How a purchase actually happens
 
 ```mermaid
 sequenceDiagram
@@ -21,149 +32,153 @@ sequenceDiagram
     participant S as Stripe
 
     B->>H: POST /events/{id}/holds  (seats A1, A2)
-    H->>H: validate against short-lived cache (no DB query)
+    H->>H: check availability against a short-lived cache (no DB hit)
     H->>K: MHOLD s:evt:A1 | s:evt:A2  (atomic, all-or-nothing, 5 min TTL)
-    K-->>H: OK  (or CONFLICT: rejected here, database never touched)
-    H->>D: re-check seats still free (1 query)
+    K-->>H: OK, or CONFLICT (rejected before the database is ever touched)
+    H->>D: re-check the seats are still free (1 query)
     H-->>B: signed hold token (price, seats, expiry)
     B->>H: POST /checkout  (Idempotency-Key, hold token)
     H->>K: is the hold still mine?
-    H->>S: create payment for exactly that amount
-    B->>S: pays with card
+    H->>S: create a payment for exactly that amount
+    B->>S: pays with a card
     S->>H: webhook payment_intent.succeeded (signed)
-    H->>D: ONE transaction: book seats, count tickets, write order + outbox event
-    H->>K: release hold
-    Note over H,D: outbox worker later delivers "order confirmed"<br/>(and refunds, if a payment arrived too late)
+    H->>D: one transaction: book the seats, write the order, write the outbox event
+    H->>K: release the hold
+    Note over H,D: an outbox worker later emails the buyer<br/>(and issues a refund if the payment showed up too late)
 ```
 
-## What it solves
+## The interesting problems, and how I dealt with them
 
-Every problem below is handled in code **and covered by a test**.
+I'm not going to pretend every one of these was obvious up front. A few of them (marked below) I only found because
+the load test broke.
 
-| Problem | How it is handled |
+| Problem | What I did about it |
 |---|---|
-| **Double-booking** when many buyers request the same seat at the same millisecond | Atomic `HOLD`/`MHOLD` in AeroKV under striped locks: exactly one winner, everyone else gets a clean `409`. Backed by a unique constraint and a conditional `UPDATE` in the database as the last line of defence. Tested with 40 threads (unit) and 300 buyers (load test): always exactly one winner. |
-| **Multi-seat deadlocks** (A wants seats 1,2 while B wants 2,1) | AeroKV locks all needed stripes in a fixed order; the client also sorts keys. Tested with opposing orders. |
-| **Database connection starvation** | Hold-path validation runs on a short-lived in-memory cache, so a hold that loses the race runs **zero** SQL statements and a winning one runs **one**. A test counts real JDBC statements. Found and fixed by load testing (see below). |
-| **Thundering herd** on a popular seat map | Cache loads are coalesced: 100 simultaneous misses cause exactly one database load. |
-| **Ghost holds** (abandoned checkouts) | 5-minute TTL enforced inside AeroKV (lazy expiry on read). A sweep also cancels unpaid payments at Stripe so they can never be paid late. |
-| **Late payment** (bank clears just as the timer expires) | Grace period: the buyer wins the *same* seats back if nobody else took them; otherwise a compensating **refund** is issued. Never a double-booking. |
-| **Duplicate payment webhooks** | The payment's state machine plus a row lock: the same webhook delivered 12 times at once creates exactly one order. |
-| **Retried checkout** (double-click, flaky network) | `Idempotency-Key`: the same key replays the original answer; nothing is charged twice. |
-| **Memory/database dual-write inconsistency** | **Transactional outbox**: the order and its outgoing event commit in one transaction; a worker delivers them at-least-once with exponential backoff (`SKIP LOCKED`, so several workers are safe). |
-| **Holds lost on a crash** | AeroKV's write-ahead log restores active holds with their *remaining* TTL and keeps them pinned against eviction. |
-| **Hold released by the wrong person** | AeroKV has a compare-and-delete (`RELEASEIF`): a late release can never free a seat someone else now holds. |
-| **Scalper bots / brute force** | Token-bucket rate limiting per client address, much stricter on login. |
-| **Seat fragmentation** | Selections that would strand a single unsellable seat are rejected (configurable). |
-| **Hybrid venues** | Per event: numbered seats, standing room, or both. Standing room is modelled as AeroKV slots with a database counter as the final guard. |
-| **Tampered or forged holds** | Hold tokens are HMAC-SHA256 signed and verified in constant time. |
+| Same seat, same millisecond, two buyers | Atomic `HOLD`/`MHOLD` in AeroKV, locked by seat under striped locks. One winner, everyone else gets a `409`. There's also a unique constraint and a conditional `UPDATE` in Postgres as a last line of defence, in case the in-memory layer is ever wrong. |
+| Buyer A wants seats [1,2], buyer B wants [2,1] at the same time | Classic lock-ordering deadlock. AeroKV always locks stripes in a fixed order regardless of the order they were requested in. |
+| **(found by load testing)** Database ran out of connections under load | Every hold request, even a losing one, was running a couple of SQL queries first. At 300 concurrent buyers that exhausted a 20-connection pool and started throwing 500s. Fixed by validating against an in-process cache, so a losing hold now costs zero SQL statements. |
+| **(found by load testing, later, against the actual Docker stack)** AeroKV's own connection pool ran out | Same shape of bug as above but one layer down — 64 pooled connections to AeroKV wasn't enough once the DB stopped being the bottleneck. Bumped the pool size, re-ran the test, errors gone. |
+| Abandoned holds nobody released | 5-minute TTL inside AeroKV. A background sweep also cancels the matching Stripe payment intent so it can't be paid late. |
+| Payment clears right as the hold timer expires | There's a short grace period — same seats back if nobody else took them, otherwise the payment gets refunded automatically. |
+| Stripe retries the same webhook a dozen times | Payment state machine plus a row lock. Twelve identical webhooks in, one order out. |
+| User double-clicks checkout | `Idempotency-Key` header, same key replays the original response instead of charging twice. |
+| Process crashes between "order saved" and "confirmation sent" | Transactional outbox — the order and the outbound event commit in the same DB transaction, a worker delivers it later with retries. |
+| AeroKV itself restarts | It has a write-ahead log, so active holds come back with their real remaining TTL instead of just vanishing. |
+| Scalpers / bots hammering the login endpoint | Per-IP token bucket, much stricter on `/auth/login` than the rest of the API. |
+| Forged hold tokens | HMAC-SHA256 signed, checked in constant time. |
 
-## Tech stack
-
-Java 21 (virtual threads) · Spring Boot 3.5 (Web, Security, Data JPA, Validation, Actuator) · PostgreSQL 17 + Flyway migrations ·
-Hibernate · Caffeine · Apache Commons Pool2 · Stripe Java SDK · Spring Mail (SMTP) · JWT (HS256) · Maven · Docker / Docker Compose ·
-GitHub Actions · JUnit 5, Mockito, MockMvc, embedded real PostgreSQL and GreenMail (real SMTP) for tests · Python (asyncio) load test.
-
-## Quick start (Docker)
+## Running it
 
 ```bash
-cp .env.example .env        # then edit the secrets (32+ characters each)
-docker compose up --build   # starts PostgreSQL, AeroKV and HoldLatch
+cp .env.example .env    # then fill in real secrets, see comments in the file
+docker compose up --build
 ```
 
-The API is on `http://localhost:8081`; `GET /actuator/health` reports the database and AeroKV. Payments need Stripe test keys in
-`.env`; without them everything else works and payment endpoints answer `503 PAYMENTS_NOT_CONFIGURED`.
+That starts Postgres, AeroKV, and HoldLatch. API is on `http://localhost:8081`, health check at `/actuator/health`.
+Stripe and email are both optional — without keys, payment endpoints answer `503` and confirmation emails just get
+logged instead of sent. Everything else works fine without them.
 
-## Run locally (without Docker)
-
-You need JDK 21 and a PostgreSQL database `holdlatch` (user/password `holdlatch` by default).
+Running without Docker needs JDK 21 and a local Postgres. AeroKV runs separately (it's its own repo):
 
 ```bash
-# 1. AeroKV (from the aerokv-holdlatch repository)
+# AeroKV, from the aerokv-holdlatch repo
 mvn compile && java -cp target/classes day06.AeroKVServerApp
 
-# 2. HoldLatch - create src/main/resources/application-local.yml (git-ignored) holding two random 32+ char secrets:
-#      holdlatch: { security: { jwt-secret: "..." }, hold: { token-secret: "..." } }
+# HoldLatch - put two random 32+ char secrets in src/main/resources/application-local.yml (git-ignored):
+#   holdlatch: { security: { jwt-secret: "..." }, hold: { token-secret: "..." } }
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 ## API
 
-Everything except register, login and the Stripe webhook needs `Authorization: Bearer <token>`. Errors are RFC 7807 problem documents with a stable `code`.
+Everything except register/login/the Stripe webhook needs `Authorization: Bearer <token>`. Errors come back as
+RFC 7807 problem documents with a stable `code` field, not just a status and a message.
 
-| Method & path | Who | Purpose |
+| Endpoint | Who | What it does |
 |---|---|---|
-| `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` | anyone / user | Accounts (`CUSTOMER` or `ORGANIZER`) and JWT login |
-| `POST /api/events` · `POST /api/events/{id}/publish` | organizer | Create an event (seated, standing or hybrid) and put it on sale |
-| `GET /api/events` · `GET /api/events/{id}` · `GET /api/events/{id}/sections/{sid}/seats` | user | Browse events, availability and the seat map |
-| `POST /api/events/{id}/holds` | user | Hold seats and/or standing tickets, all-or-nothing; returns a signed token |
-| `POST /api/holds/release` | owner | Give a hold back |
-| `POST /api/checkout` (`Idempotency-Key` header) | owner | Start payment for a hold |
-| `GET /api/checkout/{paymentId}` · `GET /api/orders` · `GET /api/orders/{id}` | owner | Payment status and orders |
-| `POST /api/webhooks/stripe` | Stripe | Signature-verified payment notifications |
+| `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | anyone / logged in | account creation and JWT login |
+| `POST /api/events`, `POST /api/events/{id}/publish` | organizer | create an event and put it on sale |
+| `GET /api/events`, `GET /api/events/{id}`, `.../sections/{sid}/seats` | anyone logged in | browse events and seat availability |
+| `POST /api/events/{id}/holds` | logged in | hold seats/standing tickets, all-or-nothing, returns a signed token |
+| `POST /api/holds/release` | the holder | give a hold back early |
+| `POST /api/checkout` (`Idempotency-Key` header) | the holder | start paying for a hold |
+| `GET /api/checkout/{id}`, `GET /api/orders`, `GET /api/orders/{id}` | the buyer | check payment/order status |
+| `POST /api/webhooks/stripe` | Stripe | signature-verified payment notifications |
 
 ## Configuration
 
-All settings are environment variables (see `application.yml`). The important ones:
+All settings come from environment variables (defaults are in `application.yml`).
 
-| Variable | Meaning | Default |
+| Variable | What it's for | Default |
 |---|---|---|
-| `JWT_SECRET`, `HOLD_TOKEN_SECRET` | Signing keys, **required**, 32+ bytes (the app refuses to start otherwise) | - |
-| `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_POOL_SIZE` | PostgreSQL | localhost / holdlatch / 20 |
-| `AEROKV_HOST`, `AEROKV_PORT`, `AEROKV_PASSWORD` | Hold engine | localhost / 8080 / none |
-| `HOLD_TTL`, `HOLD_PAYMENT_GRACE`, `HOLD_MAX_TICKETS` | Hold length, late-payment grace, tickets per hold | 5 min / 2 min / 8 |
-| `HOLD_REJECT_ORPHAN_SEATS` | Refuse selections that strand a lone seat | true |
-| `CATALOG_CACHE_TTL` | Max staleness of hold-path reads | 1 s |
-| `RATE_API_*`, `RATE_AUTH_*` | Token-bucket limits | see `application.yml` |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Enable payments (test mode keys) | off |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` | Enable order-confirmation email | off (logged only) |
+| `JWT_SECRET`, `HOLD_TOKEN_SECRET` | signing keys, required, 32+ bytes or the app refuses to start | — |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_POOL_SIZE` | Postgres connection | localhost / holdlatch / 20 |
+| `AEROKV_HOST`, `AEROKV_PORT`, `AEROKV_PASSWORD` | where AeroKV lives | localhost / 8080 / none |
+| `HOLD_TTL`, `HOLD_PAYMENT_GRACE`, `HOLD_MAX_TICKETS` | how long a hold lasts, grace window, tickets per hold | 5 min / 2 min / 8 |
+| `CATALOG_CACHE_TTL` | how stale the hold-path cache is allowed to be | 1 s |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | turns payments on | off (`503` without them) |
+| `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` | turns order-confirmation emails on | off (logged only) |
 
 ## Testing
 
 ```bash
-mvn verify        # 112 tests, ~1.5 minutes
+mvn verify        # 112 tests, roughly a minute and a half
 ```
 
-The tests use a **real PostgreSQL** (downloaded and started by the test run - nothing to install) and a real AeroKV wire-protocol server,
-not mocks, so they catch what mocks hide: constraint violations, lock behaviour, transaction boundaries. Highlights: concurrent
-hold races, idempotent-checkout races, duplicate/concurrent webhooks, late payments in and out of the grace period, refund retry with
-backoff, an AeroKV outage (clean `503`), real Stripe-format webhook signatures, and the zero-SQL-statement proof for lost races.
+Tests run against a real Postgres (downloaded and started automatically, nothing to install), a real AeroKV
+server over its actual wire protocol, and a real embedded SMTP server for the email path — not mocks for any
+of them, on purpose, because mocks don't catch constraint violations or lock behaviour. Things I specifically
+went out of my way to test: concurrent hold races, idempotent checkout under concurrency, duplicate/concurrent
+webhooks, late payments landing in and out of the grace window, an AeroKV outage returning a clean `503`, real
+Stripe-signature verification (not a fake signature), and a test that literally counts JDBC statements to prove
+a losing hold runs zero of them.
 
 ## Load test
 
-`loadtest/flash_sale.py` (standard library only) simulates a drop and checks the invariants. On one laptop, sharing CPU with everything else:
+`loadtest/flash_sale.py` (stdlib only, no dependencies) throws a crowd of buyers at a hall of 100 seats and
+checks nothing broke.
 
-| Buyers | Throughput | p50 | p99 | 5xx | Double-bookings |
+| Buyers | Throughput | p50 | p99 | Errors | Double-bookings |
 |---:|---:|---:|---:|---:|---:|
 | 100 | ~1,500 req/s | 32 ms | 122 ms | 0 | 0 |
 | 300 | ~600 req/s | 379 ms | 1,083 ms | 0 | 0 |
 
-The first run of this test *failed* (8 server errors from connection-pool exhaustion), which led to the cache design above.
-A later run against the actual Docker Compose stack found a second pool too small (AeroKV's own connection pool, not
-the database's): 34 `503`s at 300 buyers, fixed by raising `AEROKV_POOL_MAX_TOTAL`, after which the same 300-buyer
-run passed with 0 errors and better latency (p99 948 ms). Full story and how to run it: [`loadtest/README.md`](loadtest/README.md).
+Those numbers are from one laptop with the load generator, HoldLatch, AeroKV and Postgres all fighting for the
+same CPU, so real hardware does better. Two things actually broke during testing, both fixed, both in the table
+above: DB pool exhaustion on the first run, and AeroKV's own connection pool being too small once that was fixed.
+Full writeup in [`loadtest/README.md`](loadtest/README.md).
 
-## Design decisions and honest limitations
+## What I'd do differently / known limitations
 
-- **AeroKV is a single node.** It has a write-ahead log, so holds survive a restart, but there is no replication or failover: if it is down, holds are unavailable (the API answers `503`, it never guesses). Multi-node would need leader election, which is out of scope.
-- **Clocks.** AeroKV is the only authority on whether a hold is alive. Application nodes' clocks only matter for the soft token expiry and the grace window. AeroKV stores absolute expiry times so holds survive restarts, so it depends on its own host's wall clock.
-- **Standing room** is approximate under extreme contention: when a section is almost full of live holds a request can occasionally be refused although a slot exists. The database counter guarantees it can never oversell; at worst a payment that cannot be fulfilled is refunded.
-- **The orphan-seat rule** counts booked seats, not seats other people are currently holding (that would cost one AeroKV lookup per seat).
-- **Rate limits are per instance**, not shared across a fleet.
-- **Access tokens only** (1 hour); no refresh tokens or logout list.
-- **"Order confirmed" notifications** are delivered reliably by the outbox and emailed to the buyer over SMTP once `SMTP_HOST`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`MAIL_FROM` are set; without them they are only logged (`DisabledEmailSender`), never lost or retried pointlessly.
-- **Stripe** code paths that call Stripe itself have not been exercised against a live account in this repository (signature verification and payload parsing are tested with genuine Stripe-format signatures; everything else runs against a test double).
-- **Not implemented from the original design:** a virtual waiting-room queue and CAPTCHA/bot challenges.
+Being upfront about the rough edges instead of pretending they don't exist:
+
+- **AeroKV is a single node.** It has a write-ahead log so a restart doesn't lose holds, but there's no
+  replication or failover — if it's down, the API returns `503` rather than guessing. A real multi-node setup
+  needs leader election, which felt like a separate project.
+- **Standing-room capacity is approximate under heavy contention** — the database counter is still the source
+  of truth and will never oversell, but a request can occasionally get refused when a slot technically exists.
+- **Rate limiting is per-instance**, not shared across a fleet. Fine for one box, wouldn't be for several.
+- **JWTs are access-token-only**, one hour, no refresh tokens or a logout blacklist.
+- **Stripe and SMTP paths are both real**, tested against live test-mode accounts, not just unit tests against a
+  fake — but I haven't run either against production traffic, obviously.
+- **Didn't build:** a waiting-room queue in front of the sale, or a CAPTCHA/bot-challenge layer. Both are real
+  things a production system like this would want; I scoped them out to keep this finishable.
 
 ## Project layout
 
 ```
-controller/   HTTP endpoints (thin)                 service/      business logic: allocation, holds, checkout, settlement
-engine/aerokv/ pooled TCP client for AeroKV         payment/      payment-provider interface + Stripe implementation
-model/        domain enums, hold token, JPA entities outbox/       outbox event handlers
-repository/   Spring Data repositories             security/     JWT, rate limiting, request ids
-db/migration/ Flyway schema (V1-V3)                 loadtest/     flash-sale load test
+controller/      HTTP endpoints (thin)              service/    business logic: allocation, holds, checkout, settlement
+engine/aerokv/   pooled TCP client for AeroKV        payment/    payment-provider interface + Stripe implementation
+email/           email-provider interface + SMTP     outbox/     outbox event handlers (email, refunds)
+model/           domain enums, hold token, entities  security/   JWT, rate limiting, request ids
+repository/      Spring Data repositories            db/migration/  Flyway schema
+loadtest/        the flash-sale load test script
 ```
 
-AeroKV lives in its own repository: <https://github.com/meetcodesjava/aerokv-holdlatch>
-(a fork of my original AeroKV, adding atomic holds, compare-and-delete release, hold pinning, WAL replay of remaining TTL, and virtual threads).
+AeroKV is a separate repo: <https://github.com/meetcodesjava/aerokv-holdlatch> — a fork of my original AeroKV
+project, with atomic multi-key holds, compare-and-delete release, hold pinning against eviction, and WAL replay
+of remaining TTL added on top for this use case.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
